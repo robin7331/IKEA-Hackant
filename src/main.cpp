@@ -35,7 +35,7 @@ const int moveTableUpPin = PD4;
 const int moveTableDownPin = PD7;
 
 const int moveUpButton = 3;
-const int moveM2Button = 9;
+const int moveM2Button = 6;
 const int moveM1Button = 5;
 const int moveDownButton = 8;
 
