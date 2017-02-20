@@ -9,5 +9,5 @@ If you are interested in how this was developed check out my YouTube Tutorial
 
 Simple schematics created with [Fritzing](http://fritzing.org/home/ "Fritzing").
 
-![Schematics](https://github.com/robin7331/IKEA-Hackant/raw/master/Schematics_schem.png)
-![Board](https://github.com/robin7331/IKEA-Hackant/raw/master/Board.png)
+![Schematics](https://github.com/stefanctdo/IKEA-Hackant/raw/master/Schematics_schem.png)
+![Board](https://github.com/stefanctdo/IKEA-Hackant/raw/master/Board.png)
