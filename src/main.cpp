@@ -28,6 +28,8 @@ uint8_t initializedTarget = false;
 uint8_t targetThreshold = 0;
 uint8_t currentTableMovement = 0;
 
+uint16_t minPosition = 530;
+uint16_t maxPosition = 5500;
 
 const int moveTableUpPin = PD4;
 const int moveTableDownPin = PD7;
@@ -365,7 +367,14 @@ void loop() {
   // direction == 1 => Target is above table
   // direction == 2 => Target is below table
   uint8_t direction = desiredTableDirection();
-  moveTable(direction);
+
+  if( currentTarget > minPosition && currentTarget < maxPosition ){
+    moveTable(direction);
+  } else {
+    // Stop table
+    moveTable(0);
+    Serial.println("Target exceeds limit! No Movement!");
+  }
 
 
   if (Serial.available() > 0) {
