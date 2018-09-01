@@ -43,6 +43,10 @@ int lastPressedButton = 0;
 unsigned long lastPressed = 0;
 uint8_t doOnce = false;
 
+double slope = 0; // To calculate conversions.
+double x1, y1, x2, y2 = 0; // Verfied relationships bufferNumber (x) vs height in cm (y);
+
+
 
 void printValues() {
   Serial.println("======= VALUES =======");
@@ -70,6 +74,8 @@ void printHelp() {
   Serial.println("Send 'M15000' to move set the mem 1 position to 5000");
   Serial.println("Send 'M25000' to move set the mem 2 position to 5000");
   Serial.println("Send '1580' to move to position 1580.");
+  Serial.println("Send '75.3cm' to move the desk height to 75.3 cm");
+  Serial.println("## Make sure to send commands with No line ending ##" );  
   Serial.println("===============================");
 }
 
@@ -170,8 +176,28 @@ void processLINFrame(LinFrame frame) {
       String myString = String(temp);
       char buffer[5];
       myString.toCharArray(buffer, 5);
-      Serial.print("Current Position: ");
+      Serial.print("Current Buffer Position: ");
       Serial.println(buffer);
+      int bufferNumber = atoi(buffer);
+//      Serial.print("Buffer Number:");
+//      Serial.println(bufferNumber);
+
+      
+
+
+      double cmHeight = bufferToCM(bufferNumber);
+      Serial.print("Position Height:");
+      Serial.println((double)(cmHeight), 1);
+      
+
+      int calculatedPositionValue =  abs(((cmHeight - 65) / slope) + 150);
+      
+
+      Serial.print("Calculated Position Value from height: ");
+      Serial.println(calculatedPositionValue);
+
+
+
 
       if (initializedTarget == false) {
         currentTarget = temp;
@@ -181,6 +207,25 @@ void processLINFrame(LinFrame frame) {
 
   }
 }
+
+double bufferToCM(double bufferNumber) {
+
+  return (slope * (bufferNumber - x1)) + y1;
+}
+
+double cmToBufferNumber(double desiredPositionCM) {
+  return ((desiredPositionCM - y1) / slope) + x1;
+}
+
+
+
+
+
+
+
+
+
+
 
 void readButtons() {
 
@@ -322,9 +367,6 @@ void setup() {
   // Enable global interrupts.
   sei();
 
-
-
-
   EEPROM.get(0, targetThreshold);
   if (targetThreshold == 255) {
     storeThreshold(120);
@@ -340,6 +382,19 @@ void setup() {
   if (memTwo == 65535) {
     storeM2(3500);
   }
+
+  // Calculate Slope (m) / Use any combination of buffer data - deskHeight (m = dy/dx)
+  x1 = 651;
+  y1 = 70.5;
+
+  x2 = 5211;
+  y2 = 114.7;
+  
+  double deltaX = x2 - x1;
+  double deltaY = y2 - y1;
+  slope = deltaY / deltaX;
+  //      Serial.print("Slope:");
+  //      Serial.println(slope);
 
   printValues();
 
@@ -374,11 +429,14 @@ void loop() {
     // read the incoming byte:
     String val = Serial.readString();
 
-    if (val.indexOf("HELP") != -1 || val.indexOf("help") != -1) {
+    val.toUpperCase(); // So we don't need to compare vs lowercase
+    
+
+    if (val.indexOf("HELP") != -1) {
       printHelp();
-    } else if (val.indexOf("VALUES") != -1 || val.indexOf("values") != -1) {
+    } else if (val.indexOf("VALUES") != -1) {
       printValues();
-    } else if (val.indexOf("STOP") != -1 || val.indexOf("stop") != -1) {
+    } else if (val.indexOf("STOP") != -1) {
 
       if (direction == 1)
         currentTarget = lastPosition + (targetThreshold * 2);
@@ -389,12 +447,12 @@ void loop() {
       Serial.println(currentTarget);
 
 
-    } else if (val.indexOf('T') != -1 || val.indexOf("t") != -1) {
+    } else if (val.indexOf('T') != -1) {
       uint8_t threshold = (uint8_t)val.substring(1).toInt();
       storeThreshold(threshold);
 
-    } else if (val.indexOf("M1") != -1 || val.indexOf("m1") != -1) {
-
+    // Make sure to send commends with NO LINE ENDING option.
+    } else if (val.indexOf("M1") != -1) {
       if (val.length() == 2) {
         currentTarget = memOne;
       } else {
@@ -402,7 +460,7 @@ void loop() {
       }
 
 
-    } else if (val.indexOf("M2") != -1 || val.indexOf("m2") != -1) {
+    } else if (val.indexOf("M2") != -1) {
 
       if (val.length() == 2) {
         currentTarget = memTwo;
@@ -410,15 +468,34 @@ void loop() {
         storeM2(val.substring(2).toInt());
       }
 
-    } else if (val.indexOf("S1") != -1 || val.indexOf("s1") != -1) {
+    } else if (val.indexOf("S1") != -1) {
 
       storeM1(lastPosition);
 
-    } else if (val.indexOf("S2") != -1 || val.indexOf("s2") != -1) {
+    } else if (val.indexOf("S2") != -1) {
 
       storeM2(lastPosition);
 
-    } else {
+    } else if (val.lastIndexOf("CM") != -1) { // User wants to move in CM
+      if (val.length() > 2) {
+        double desiredPositionCM = (val.substring(0, val.lastIndexOf("CM")).toDouble());
+        if (desiredPositionCM >= 65 && desiredPositionCM <= 125) {
+          int calculatedPositionValue =  cmToBufferNumber(desiredPositionCM);
+          Serial.print("New target from:");
+          Serial.print(desiredPositionCM);
+          Serial.println(" cm");
+          Serial.print(" -> ");
+          Serial.println(calculatedPositionValue);
+          currentTarget = calculatedPositionValue;
+        } else {
+          Serial.print("Not stored. Desk can only move from 65.00 cm to 125.00 cm.");
+        }
+        
+      }
+    
+    
+    
+    }else {
       if (val.toInt() > 150 && val.toInt() < 6400) {
         Serial.print("New Target ");
         Serial.println(val);
