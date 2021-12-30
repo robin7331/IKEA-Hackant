@@ -19,7 +19,6 @@
 #include "system_clock.h"
 #include <EEPROM.h>
 
-
 uint16_t lastPosition = 0;
 uint16_t memOne = 0;
 uint16_t memTwo = 0;
@@ -28,7 +27,6 @@ uint16_t currentTarget = 0;
 uint8_t initializedTarget = false;
 uint8_t targetThreshold = 0;
 uint8_t currentTableMovement = 0;
-
 
 const int moveTableUpPin = PD4;
 const int moveTableDownPin = PD7;
@@ -42,7 +40,6 @@ int pressedButton = 0;
 int lastPressedButton = 0;
 unsigned long lastPressed = 0;
 uint8_t doOnce = false;
-
 
 void printValues() {
   Serial.println("======= VALUES =======");
@@ -79,6 +76,7 @@ void storeM1(uint16_t value) {
     Serial.print("New Memory 1: ");
     Serial.println(value);
     EEPROM.put(1, value);
+
   } else {
     Serial.println("Not stored. Keep your value between 150 and 6400");
   }
@@ -90,6 +88,7 @@ void storeM2(uint16_t value) {
     Serial.print("New Memory 2: ");
     Serial.println(value);
     EEPROM.put(3, value);
+
   } else {
     Serial.println("Not stored. Keep your value between 150 and 6400");
   }
@@ -101,11 +100,11 @@ void storeThreshold(uint8_t value) {
     Serial.print("New Threshold: ");
     Serial.println(value);
     EEPROM.put(0, value);
+
   } else {
     Serial.println("Not stored. Keep your value between 50 and 254");
   }
 }
-
 
 // direction == 0 => Table stops
 // direction == 1 => Table goes upwards
@@ -114,14 +113,17 @@ void storeThreshold(uint8_t value) {
 void moveTable(uint8_t direction) {
   if (direction != currentTableMovement) {
     currentTableMovement = direction;
+
     if (direction == 0) {
       Serial.println("Table stops");
       digitalWrite(moveTableUpPin, HIGH);
       digitalWrite(moveTableDownPin, HIGH);
+
     } else if (direction == 1) {
       Serial.println("Table goes up");
       digitalWrite(moveTableDownPin, HIGH);
       digitalWrite(moveTableUpPin, LOW);
+
     } else {
       Serial.println("Table goes down");
       digitalWrite(moveTableUpPin, HIGH);
@@ -134,20 +136,17 @@ void moveTable(uint8_t direction) {
 // direction == 1 => Target is above table
 // direction == 2 => Target is below table
 uint8_t desiredTableDirection() {
-
   int distance = lastPosition - currentTarget;
   uint16_t absDistance = abs(distance);
 
   if (absDistance > targetThreshold) {
-    if (distance <= 0) { // table has to move up
+    if (distance <= 0)
       return 1;
-    }
-    return 2;
+    else
+      return 2;
   }
   return 0;
-
 }
-
 
 void processLINFrame(LinFrame frame) {
   // Get the first byte which is the LIN ID
@@ -173,19 +172,16 @@ void processLINFrame(LinFrame frame) {
       Serial.print("Current Position: ");
       Serial.println(buffer);
 
-      if (initializedTarget == false) {
+      if (!initializedTarget) {
         currentTarget = temp;
         initializedTarget = true;
       }
     }
-
   }
 }
 
 void readButtons() {
-
   if (digitalRead(moveUpButton) == HIGH) {
-
     pressedButton = moveUpButton;
     if (lastPressedButton != pressedButton) {
       Serial.println("Button UP Pressed");
@@ -199,7 +195,6 @@ void readButtons() {
     if (lastPressedButton != pressedButton) {
       Serial.println("Button M1 Pressed");
       lastPressedButton = pressedButton;
-
     }
     return;
   }
@@ -209,7 +204,6 @@ void readButtons() {
     if (lastPressedButton != pressedButton) {
       Serial.println("Button M2 Pressed");
       lastPressedButton = pressedButton;
-
     }
     return;
   }
@@ -223,72 +217,55 @@ void readButtons() {
     return;
   }
 
-
   pressedButton = 0;
-
 }
 
 void loopButtons() {
-
   if (pressedButton != 0) {
-
     if (lastPressedButton == moveUpButton) {
       moveTable(1);
       currentTarget = lastPosition + (targetThreshold * 2);
+
     } else if (lastPressedButton == moveDownButton) {
       moveTable(2);
       currentTarget = lastPosition - (targetThreshold * 2);
+
     } else {
-      if (doOnce == false) {
+      if (!doOnce) {
         lastPressed = millis();
         doOnce = true;
       }
     }
 
-  } else {
+  } else if (doOnce) {
+    unsigned int pressDuration = millis() - lastPressed;
 
-    if (doOnce) {
+    if (pressDuration > 0 && pressDuration < 1000) { // short press
+      Serial.print("Button pressed for ");
+      Serial.print(pressDuration);
+      Serial.println(" ms.");
 
-      unsigned int pressDuration = millis() - lastPressed;
+      if (lastPressedButton == moveM1Button)
+        currentTarget = memOne;
+      else if (lastPressedButton == moveM2Button)
+        currentTarget = memTwo;
+    
+    } else if (pressDuration >= 1000) {
+      Serial.print("Button pressed for ");
+      Serial.print(pressDuration);
+      Serial.println(" ms.");
 
-      if (pressDuration > 0 && pressDuration < 1000) { // short press
-
-        Serial.print("Button pressed for ");
-        Serial.print(pressDuration);
-        Serial.println(" ms.");
-
-        if (lastPressedButton == moveM1Button) {
-          currentTarget = memOne;
-        } else if (lastPressedButton == moveM2Button) {
-          currentTarget = memTwo;
-        }
-
-      } else if (pressDuration >= 1000) {
-
-        Serial.print("Button pressed for ");
-        Serial.print(pressDuration);
-        Serial.println(" ms.");
-
-        if (lastPressedButton == moveM1Button) {
-          storeM1(lastPosition);
-        } else if (lastPressedButton == moveM2Button) {
-          storeM2(lastPosition);
-        }
-
-      }
-
+      if (lastPressedButton == moveM1Button)
+        storeM1(lastPosition);
+      else if (lastPressedButton == moveM2Button)
+        storeM2(lastPosition);
     }
 
-
     doOnce = false;
-  }
-
+  } 
 }
 
-
 void setup() {
-
-
   Serial.begin(115200);
   while (!Serial) {;};
 
@@ -322,62 +299,50 @@ void setup() {
   // Enable global interrupts.
   sei();
 
-
-
-
+  // init EEPROM
   EEPROM.get(0, targetThreshold);
-  if (targetThreshold == 255) {
+  if (targetThreshold == 255)
     storeThreshold(120);
-  }
-
+  
   EEPROM.get(1, memOne);
-  if (memOne == 65535) {
-    storeM1(3500);
-  }
-
+  if (memOne == 65535)
+    storeM1(3500);  
 
   EEPROM.get(3, memTwo);
-  if (memTwo == 65535) {
+  if (memTwo == 65535)
     storeM2(3500);
-  }
-
+  
+  // print variables
   printValues();
-
 }
 
-
-
 void loop() {
-
-
   // Periodic updates.
   system_clock::loop();
-
 
   // Handle recieved LIN frames.
   LinFrame frame;
 
   // if there is a LIN frame
-  if (lin_processor::readNextFrame(&frame)) {
+  if (lin_processor::readNextFrame(&frame))
     processLINFrame(frame);
-  }
-
+  
   // direction == 0 => Table is levelled
   // direction == 1 => Target is above table
   // direction == 2 => Target is below table
   uint8_t direction = desiredTableDirection();
   moveTable(direction);
 
-
   if (Serial.available() > 0) {
-
     // read the incoming byte:
     String val = Serial.readString();
 
     if (val.indexOf("HELP") != -1 || val.indexOf("help") != -1) {
       printHelp();
+
     } else if (val.indexOf("VALUES") != -1 || val.indexOf("values") != -1) {
       printValues();
+
     } else if (val.indexOf("STOP") != -1 || val.indexOf("stop") != -1) {
 
       if (direction == 1)
@@ -388,34 +353,26 @@ void loop() {
       Serial.print("STOP at ");
       Serial.println(currentTarget);
 
-
     } else if (val.indexOf('T') != -1 || val.indexOf("t") != -1) {
       uint8_t threshold = (uint8_t)val.substring(1).toInt();
       storeThreshold(threshold);
 
     } else if (val.indexOf("M1") != -1 || val.indexOf("m1") != -1) {
-
-      if (val.length() == 2) {
+      if (val.length() == 2)
         currentTarget = memOne;
-      } else {
+      else
         storeM1(val.substring(2).toInt());
-      }
-
 
     } else if (val.indexOf("M2") != -1 || val.indexOf("m2") != -1) {
-
-      if (val.length() == 2) {
+      if (val.length() == 2)
         currentTarget = memTwo;
-      } else {
-        storeM2(val.substring(2).toInt());
-      }
+      else 
+        storeM2(val.substring(2).toInt());      
 
     } else if (val.indexOf("S1") != -1 || val.indexOf("s1") != -1) {
-
       storeM1(lastPosition);
 
     } else if (val.indexOf("S2") != -1 || val.indexOf("s2") != -1) {
-
       storeM2(lastPosition);
 
     } else {
@@ -423,6 +380,7 @@ void loop() {
         Serial.print("New Target ");
         Serial.println(val);
         currentTarget = val.toInt();
+
       } else {
         Serial.println("Not stored. Keep your value between 150 and 6400");
       }
@@ -431,5 +389,4 @@ void loop() {
 
   readButtons();
   loopButtons();
-
 }
