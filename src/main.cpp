@@ -164,7 +164,7 @@ void processLINFrame(LinFrame frame) {
     temp <<= 8;
     temp = temp | varB;
 
-    if (temp != lastPosition) {
+    if (temp != lastPosition && temp < 6400) {
       lastPosition = temp;
       String myString = String(temp);
       char buffer[5];
