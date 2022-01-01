@@ -3,11 +3,9 @@
   - This prevents the table from moving to lowest position when plugging everything in.
 - Some code cleanup
 
-# 3D printed case on thingiverse
+# 3D printed case on Thingiverse
 https://www.thingiverse.com/thing:5181601
 
-![Case1](Case1.jpeg)
-![Case2](Case2.jpeg)
 ![Case3](Case3.jpeg)
 
 # IKEA Hackant
