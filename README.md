@@ -6,8 +6,6 @@
 # 3D printed case on thingiverse
 https://www.thingiverse.com/thing:5181601
 
-![Case1](Case1.jpeg)
-![Case2](Case2.jpeg)
 ![Case3](Case3.jpeg)
 
 # IKEA Hackant
