@@ -2,11 +2,21 @@
 - Added filter for first reported position above max limit. 
   - This prevents the table from moving to lowest position when plugging everything in.
 - Some code cleanup
+- Added 3D Printed case, see below
 
-# 3D printed case on Thingiverse
+## 3D printed case on Thingiverse
 https://www.thingiverse.com/thing:5181601
 
 ![Case3](Case3.jpeg)
+
+The case contains 4 buttons. Two are for manually rasing and lowering the desk. 
+The other two are to directly move the desk to fixed positions (sitting / standing)
+
+The PCB sandwich consists of the original IKEA board, Arduino Nano 3, a custom board containing the other components.
+Lastly the black box is a DC/DC converter converting the desk power (24V) to 5V for the Arduino.
+
+
+# Original readme starts here
 
 # IKEA Hackant
 
