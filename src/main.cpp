@@ -106,6 +106,12 @@ void storeThreshold(uint8_t value) {
   }
 }
 
+// Add a helper to store currentTarget
+void storeCurrentTarget(uint16_t value) {
+  currentTarget = value;
+  EEPROM.put(5, value); // Use address 5 (next free after memTwo)
+}
+
 
 // direction == 0 => Table stops
 // direction == 1 => Table goes upwards
@@ -174,7 +180,10 @@ void processLINFrame(LinFrame frame) {
       Serial.println(buffer);
 
       if (initializedTarget == false) {
-        currentTarget = temp;
+        // Restore currentTarget from EEPROM if valid, else use temp
+        if (currentTarget < 150 || currentTarget > 6400) {
+          storeCurrentTarget(temp);
+        }
         initializedTarget = true;
       }
     }
@@ -234,10 +243,10 @@ void loopButtons() {
 
     if (lastPressedButton == moveUpButton) {
       moveTable(1);
-      currentTarget = lastPosition + (targetThreshold * 2);
+      storeCurrentTarget(lastPosition + (targetThreshold * 2));
     } else if (lastPressedButton == moveDownButton) {
       moveTable(2);
-      currentTarget = lastPosition - (targetThreshold * 2);
+      storeCurrentTarget(lastPosition - (targetThreshold * 2));
     } else {
       if (doOnce == false) {
         lastPressed = millis();
@@ -258,9 +267,9 @@ void loopButtons() {
         Serial.println(" ms.");
 
         if (lastPressedButton == moveM1Button) {
-          currentTarget = memOne;
+          storeCurrentTarget(memOne);
         } else if (lastPressedButton == moveM2Button) {
-          currentTarget = memTwo;
+          storeCurrentTarget(memTwo);
         }
 
       } else if (pressDuration >= 1000) {
@@ -341,6 +350,9 @@ void setup() {
     storeM2(3500);
   }
 
+  EEPROM.get(5, currentTarget);
+  // Optionally validate currentTarget here
+
   printValues();
 
 }
@@ -379,33 +391,27 @@ void loop() {
     } else if (val.indexOf("VALUES") != -1 || val.indexOf("values") != -1) {
       printValues();
     } else if (val.indexOf("STOP") != -1 || val.indexOf("stop") != -1) {
-
       if (direction == 1)
-        currentTarget = lastPosition + (targetThreshold * 2);
+        storeCurrentTarget(lastPosition + (targetThreshold * 2));
       else if (direction == 2)
-        currentTarget = lastPosition - (targetThreshold * 2);
-
+        storeCurrentTarget(lastPosition - (targetThreshold * 2));
       Serial.print("STOP at ");
       Serial.println(currentTarget);
-
 
     } else if (val.indexOf('T') != -1 || val.indexOf("t") != -1) {
       uint8_t threshold = (uint8_t)val.substring(1).toInt();
       storeThreshold(threshold);
 
     } else if (val.indexOf("M1") != -1 || val.indexOf("m1") != -1) {
-
       if (val.length() == 2) {
-        currentTarget = memOne;
+        storeCurrentTarget(memOne);
       } else {
         storeM1(val.substring(2).toInt());
       }
 
-
     } else if (val.indexOf("M2") != -1 || val.indexOf("m2") != -1) {
-
       if (val.length() == 2) {
-        currentTarget = memTwo;
+        storeCurrentTarget(memTwo);
       } else {
         storeM2(val.substring(2).toInt());
       }
@@ -422,7 +428,7 @@ void loop() {
       if (val.toInt() > 150 && val.toInt() < 6400) {
         Serial.print("New Target ");
         Serial.println(val);
-        currentTarget = val.toInt();
+        storeCurrentTarget(val.toInt());
       } else {
         Serial.println("Not stored. Keep your value between 150 and 6400");
       }
@@ -431,5 +437,4 @@ void loop() {
 
   readButtons();
   loopButtons();
-
 }
