@@ -28,6 +28,35 @@ uint8_t initializedTarget = false;
 uint8_t targetThreshold = 0;
 uint8_t currentTableMovement = 0;
 
+// After the motor is switched off the desk coasts ~150 position units and then
+// springs back ~40, so it ends ~114 units past the position at which it was
+// stopped (measured on a BEKANT: 111-117, both directions). The stop happens
+// at the first position report with remaining distance <= kOverrun; reports
+// come every ~35 units, so kOverrun = 114 + 35/2 centres the end position
+// error (about -20..+15).
+const uint16_t kOverrun = 130;
+// After a stop, wait until the position has been stable this long before an
+// automatic correction move is started (the desk is still coasting before).
+const unsigned long kSettleMs = 500;
+unsigned long lastPositionChange = 0;
+// True while the table is moved manually with the Up/Down buttons.
+uint8_t manualMove = false;
+
+// Target relative to the current position, clamped to the uint16_t range.
+uint16_t targetFromPosition(long offset)
+{
+  long value = (long)lastPosition + offset;
+  if (value < 0)
+  {
+    return 0;
+  }
+  if (value > 65535L)
+  {
+    return 65535;
+  }
+  return (uint16_t)value;
+}
+
 const int moveTableUpPin = PD4;
 const int moveTableDownPin = PD7;
 
@@ -43,33 +72,33 @@ uint8_t doOnce = false;
 
 void printValues()
 {
-  Serial.println("======= VALUES =======");
-  Serial.print("Memory 1 is at: ");
+  Serial.println(F("======= VALUES ======="));
+  Serial.print(F("Memory 1 is at: "));
   Serial.println(memOne);
-  Serial.print("Memory 2 is at: ");
+  Serial.print(F("Memory 2 is at: "));
   Serial.println(memTwo);
-  Serial.print("Threshold is: ");
+  Serial.print(F("Threshold is: "));
   Serial.println(targetThreshold);
-  Serial.print("Current Position: ");
+  Serial.print(F("Current Position: "));
   Serial.println(lastPosition);
-  Serial.println("======================");
+  Serial.println(F("======================"));
 }
 
 void printHelp()
 {
-  Serial.println("======= Serial Commands =======");
-  Serial.println("Send 'STOP' to stop");
-  Serial.println("Send 'HELP' to show this view");
-  Serial.println("Send 'VALUES' to show the current values");
-  Serial.println("Send 'T123' to set the threshold to 123 (255 max!)");
-  Serial.println("Send 'M1' to move to position stored in memory 1");
-  Serial.println("Send 'M2' to move to position stored in memory 2");
-  Serial.println("Send 'S1' to store current position in memory 1");
-  Serial.println("Send 'S2' to store current position in memory 2");
-  Serial.println("Send 'M15000' to move set the mem 1 position to 5000");
-  Serial.println("Send 'M25000' to move set the mem 2 position to 5000");
-  Serial.println("Send '1580' to move to position 1580.");
-  Serial.println("===============================");
+  Serial.println(F("======= Serial Commands ======="));
+  Serial.println(F("Send 'STOP' to stop"));
+  Serial.println(F("Send 'HELP' to show this view"));
+  Serial.println(F("Send 'VALUES' to show the current values"));
+  Serial.println(F("Send 'T123' to set the threshold to 123 (255 max!)"));
+  Serial.println(F("Send 'M1' to move to position stored in memory 1"));
+  Serial.println(F("Send 'M2' to move to position stored in memory 2"));
+  Serial.println(F("Send 'S1' to store current position in memory 1"));
+  Serial.println(F("Send 'S2' to store current position in memory 2"));
+  Serial.println(F("Send 'M15000' to move set the mem 1 position to 5000"));
+  Serial.println(F("Send 'M25000' to move set the mem 2 position to 5000"));
+  Serial.println(F("Send '1580' to move to position 1580."));
+  Serial.println(F("==============================="));
 }
 
 void storeM1(uint16_t value)
@@ -77,13 +106,13 @@ void storeM1(uint16_t value)
   if (value > 150 && value < 6400)
   {
     memOne = value;
-    Serial.print("New Memory 1: ");
+    Serial.print(F("New Memory 1: "));
     Serial.println(value);
     EEPROM.put(1, value);
   }
   else
   {
-    Serial.println("Not stored. Keep your value between 150 and 6400");
+    Serial.println(F("Not stored. Keep your value between 150 and 6400"));
   }
 }
 
@@ -92,13 +121,13 @@ void storeM2(uint16_t value)
   if (value > 150 && value < 6400)
   {
     memTwo = value;
-    Serial.print("New Memory 2: ");
+    Serial.print(F("New Memory 2: "));
     Serial.println(value);
     EEPROM.put(3, value);
   }
   else
   {
-    Serial.println("Not stored. Keep your value between 150 and 6400");
+    Serial.println(F("Not stored. Keep your value between 150 and 6400"));
   }
 }
 
@@ -107,13 +136,13 @@ void storeThreshold(uint8_t value)
   if (value > 50 && value < 254)
   {
     targetThreshold = value;
-    Serial.print("New Threshold: ");
+    Serial.print(F("New Threshold: "));
     Serial.println(value);
     EEPROM.put(0, value);
   }
   else
   {
-    Serial.println("Not stored. Keep your value between 50 and 254");
+    Serial.println(F("Not stored. Keep your value between 50 and 254"));
   }
 }
 
@@ -135,19 +164,19 @@ void moveTable(uint8_t direction)
     currentTableMovement = direction;
     if (direction == 0)
     {
-      Serial.println("Table stops");
+      Serial.println(F("Table stops"));
       digitalWrite(moveTableUpPin, HIGH);
       digitalWrite(moveTableDownPin, HIGH);
     }
     else if (direction == 1)
     {
-      Serial.println("Table goes up");
+      Serial.println(F("Table goes up"));
       digitalWrite(moveTableDownPin, HIGH);
       digitalWrite(moveTableUpPin, LOW);
     }
     else
     {
-      Serial.println("Table goes down");
+      Serial.println(F("Table goes down"));
       digitalWrite(moveTableUpPin, HIGH);
       digitalWrite(moveTableDownPin, LOW);
     }
@@ -157,18 +186,37 @@ void moveTable(uint8_t direction)
 // direction == 0 => Table is levelled
 // direction == 1 => Target is above table
 // direction == 2 => Target is below table
+//
+// While moving: keep moving only while the remaining distance is larger than
+// kOverrun, so the table coasts to the target after the stop.
+// While standing: start only after the position has settled and only if the
+// distance is larger than the threshold and larger than kOverrun (a shorter
+// move would be stopped again immediately).
 uint8_t desiredTableDirection()
 {
+  long distance = (long)currentTarget - (long)lastPosition; // > 0: target above
 
-  int distance = lastPosition - currentTarget;
-  uint16_t absDistance = abs(distance);
-
-  if (absDistance > targetThreshold)
+  if (currentTableMovement == 1)
   {
-    if (distance <= 0)
-    { // table has to move up
-      return 1;
-    }
+    return (distance > (long)kOverrun) ? 1 : 0;
+  }
+  if (currentTableMovement == 2)
+  {
+    return (-distance > (long)kOverrun) ? 2 : 0;
+  }
+
+  if (millis() - lastPositionChange < kSettleMs)
+  {
+    return 0;
+  }
+
+  long startDistance = max((long)targetThreshold, (long)kOverrun);
+  if (distance > startDistance)
+  {
+    return 1;
+  }
+  if (-distance > startDistance)
+  {
     return 2;
   }
   return 0;
@@ -195,11 +243,9 @@ void processLINFrame(LinFrame frame)
     if (temp != lastPosition)
     {
       lastPosition = temp;
-      String myString = String(temp);
-      char buffer[5];
-      myString.toCharArray(buffer, 5);
-      Serial.print("Current Position: ");
-      Serial.println(buffer);
+      lastPositionChange = millis();
+      Serial.print(F("Current Position: "));
+      Serial.println(temp);
 
       if (initializedTarget == false)
       {
@@ -219,7 +265,7 @@ void readButtons()
     pressedButton = moveUpButton;
     if (lastPressedButton != pressedButton)
     {
-      Serial.println("Button UP Pressed");
+      Serial.println(F("Button UP Pressed"));
       lastPressedButton = pressedButton;
     }
     return;
@@ -230,7 +276,7 @@ void readButtons()
     pressedButton = moveM1Button;
     if (lastPressedButton != pressedButton)
     {
-      Serial.println("Button M1 Pressed");
+      Serial.println(F("Button M1 Pressed"));
       lastPressedButton = pressedButton;
     }
     return;
@@ -241,7 +287,7 @@ void readButtons()
     pressedButton = moveM2Button;
     if (lastPressedButton != pressedButton)
     {
-      Serial.println("Button M2 Pressed");
+      Serial.println(F("Button M2 Pressed"));
       lastPressedButton = pressedButton;
     }
     return;
@@ -252,7 +298,7 @@ void readButtons()
     pressedButton = moveDownButton;
     if (lastPressedButton != pressedButton)
     {
-      Serial.println("Button DN Pressed");
+      Serial.println(F("Button DN Pressed"));
       lastPressedButton = pressedButton;
     }
     return;
@@ -267,15 +313,18 @@ void loopButtons()
   if (pressedButton != 0)
   {
 
+    // Keep the target far enough ahead so the table keeps moving while held.
     if (lastPressedButton == moveUpButton)
     {
       moveTable(1);
-      storeCurrentTarget(lastPosition + (targetThreshold * 2));
+      storeCurrentTarget(targetFromPosition(2L * kOverrun));
+      manualMove = true;
     }
     else if (lastPressedButton == moveDownButton)
     {
       moveTable(2);
-      storeCurrentTarget(lastPosition - (targetThreshold * 2));
+      storeCurrentTarget(targetFromPosition(-2L * kOverrun));
+      manualMove = true;
     }
     else
     {
@@ -289,6 +338,21 @@ void loopButtons()
   else
   {
 
+    // Up/Down released: target = expected end position after coasting.
+    // The remaining distance is exactly kOverrun, so the table stops now.
+    if (manualMove)
+    {
+      if (lastPressedButton == moveUpButton)
+      {
+        storeCurrentTarget(targetFromPosition(kOverrun));
+      }
+      else if (lastPressedButton == moveDownButton)
+      {
+        storeCurrentTarget(targetFromPosition(-(long)kOverrun));
+      }
+      manualMove = false;
+    }
+
     if (doOnce)
     {
 
@@ -297,9 +361,9 @@ void loopButtons()
       if (pressDuration > 0 && pressDuration < 1000)
       { // short press
 
-        Serial.print("Button pressed for ");
+        Serial.print(F("Button pressed for "));
         Serial.print(pressDuration);
-        Serial.println(" ms.");
+        Serial.println(F(" ms."));
 
         if (lastPressedButton == moveM1Button)
         {
@@ -313,9 +377,9 @@ void loopButtons()
       else if (pressDuration >= 1000)
       {
 
-        Serial.print("Button pressed for ");
+        Serial.print(F("Button pressed for "));
         Serial.print(pressDuration);
-        Serial.println(" ms.");
+        Serial.println(F(" ms."));
 
         if (lastPressedButton == moveM1Button)
         {
@@ -341,8 +405,8 @@ void setup()
     ;
   };
 
-  Serial.println("IKEA Hackant v1.0");
-  Serial.println("Type 'HELP' to display all commands.");
+  Serial.println(F("IKEA Hackant v1.0"));
+  Serial.println(F("Type 'HELP' to display all commands."));
 
   pinMode(moveTableUpPin, OUTPUT);
   pinMode(moveTableDownPin, OUTPUT);
@@ -352,13 +416,13 @@ void setup()
   pinMode(moveM1Button, INPUT);
   pinMode(moveM2Button, INPUT);
 
-  Serial.print("moveUpButton ");
+  Serial.print(F("moveUpButton "));
   Serial.println(moveUpButton);
-  Serial.print("moveDownButton ");
+  Serial.print(F("moveDownButton "));
   Serial.println(moveDownButton);
-  Serial.print("moveM1Button ");
+  Serial.print(F("moveM1Button "));
   Serial.println(moveM1Button);
-  Serial.print("moveM2Button ");
+  Serial.print(F("moveM2Button "));
   Serial.println(moveM2Button);
 
   digitalWrite(moveTableUpPin, HIGH);
@@ -433,10 +497,10 @@ void loop()
     else if (val.indexOf("STOP") != -1 || val.indexOf("stop") != -1)
     {
       if (direction == 1)
-        storeCurrentTarget(lastPosition + (targetThreshold * 2));
+        storeCurrentTarget(targetFromPosition(kOverrun));
       else if (direction == 2)
-        storeCurrentTarget(lastPosition - (targetThreshold * 2));
-      Serial.print("STOP at ");
+        storeCurrentTarget(targetFromPosition(-(long)kOverrun));
+      Serial.print(F("STOP at "));
       Serial.println(currentTarget);
     }
     else if (val.indexOf('T') != -1 || val.indexOf("t") != -1)
@@ -480,13 +544,13 @@ void loop()
     {
       if (val.toInt() > 150 && val.toInt() < 6400)
       {
-        Serial.print("New Target ");
+        Serial.print(F("New Target "));
         Serial.println(val);
         storeCurrentTarget(val.toInt());
       }
       else
       {
-        Serial.println("Not stored. Keep your value between 150 and 6400");
+        Serial.println(F("Not stored. Keep your value between 150 and 6400"));
       }
     }
   }
