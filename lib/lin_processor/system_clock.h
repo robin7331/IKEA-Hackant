@@ -13,7 +13,7 @@
 #ifndef SYS_CLOCK_H
 #define SYS_CLOCK_H
 
-#include <arduino.h>
+#include <Arduino.h>
 #include "hardware_clock.h"
 
 // Uses the hardware clock to provide a 32 bit milliseconds time since program start.
