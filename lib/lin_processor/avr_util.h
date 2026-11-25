@@ -13,7 +13,7 @@
 #ifndef AVR_UTIL_H
 #define AVR_UTIL_H
 
-#include <arduino.h>
+#include <Arduino.h>
 
 // Get rid of the _t type suffix.
 typedef uint8_t  uint8;
