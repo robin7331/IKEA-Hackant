@@ -13,7 +13,7 @@
 #ifndef HARDWARE_CLOCK_H
 #define HARDWARE_CLOCK_H
 
-#include <arduino.h>
+#include <Arduino.h>
 #include "avr_util.h"
 
 // Provides a free running 16 bit counter with 250 ticks per millisecond and 

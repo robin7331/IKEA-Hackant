@@ -12,7 +12,7 @@
 
 #include "system_clock.h"
 
-#include <arduino.h>
+#include <Arduino.h>
 #include "avr_util.h"
 #include "hardware_clock.h"
 
