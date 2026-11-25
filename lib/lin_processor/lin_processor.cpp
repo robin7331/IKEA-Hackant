@@ -157,7 +157,7 @@ namespace lin_processor {
     sample_pin::setup();
     error_pin::setup();
     isr_pin::setup();
-    gp_pin::setup();
+    // gp_pin (PD6) is not set up: D6 is the M2 button input in main.cpp.
   }
 
   // ----- ISR RX Ring Buffers -----
@@ -335,10 +335,9 @@ namespace lin_processor {
   // ----- Initialization -----
 
   static void setupTimer() {
-    // OC2B cycle pulse (Arduino digital pin 3, PD3). For debugging.
-    DDRD |= H(DDD3);
-    // Fast PWM mode, OC2B output active high.
-    TCCR2A = L(COM2A1) | L(COM2A0) | H(COM2B1) | H(COM2B0) | H(WGM21) | H(WGM20);
+    // OC2B debug pulse output disabled: D3 (PD3) is the Up button input in main.cpp.
+    // Fast PWM mode, OC2A/OC2B disconnected from the pins.
+    TCCR2A = L(COM2A1) | L(COM2A0) | L(COM2B1) | L(COM2B0) | H(WGM21) | H(WGM20);
     const uint8 prescaler = config.prescaler_x64()
       ? (H(CS22) | L(CS21) | L(CS20))   // x64
         : (L(CS22) | H(CS21) | L(CS20));  // x8
