@@ -13,7 +13,7 @@
 #ifndef PASSIVE_TIMER_H
 #define PASSIVE_TIMER_H
 
-#include <arduino.h>
+#include <Arduino.h>
 #include "system_clock.h"
 
 // A wrapper around system clock that provides millisecond based time measurments.
