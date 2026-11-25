@@ -22,6 +22,10 @@
 uint16_t lastPosition = 0;
 uint16_t memOne = 0;
 uint16_t memTwo = 0;
+uint16_t memThree = 0;
+// Initial memory 3 position if the EEPROM is still empty (a comfortable
+// standing height on my desk; memory 1/2 default to 3500).
+const uint16_t kDefaultMemThree = 1926;
 
 uint16_t currentTarget = 0;
 uint8_t initializedTarget = false;
@@ -39,8 +43,6 @@ const uint16_t kOverrun = 130;
 // automatic correction move is started (the desk is still coasting before).
 const unsigned long kSettleMs = 500;
 unsigned long lastPositionChange = 0;
-// True while the table is moved manually with the Up/Down buttons.
-uint8_t manualMove = false;
 
 // Target relative to the current position, clamped to the uint16_t range.
 uint16_t targetFromPosition(long offset)
@@ -65,10 +67,32 @@ const int moveM2Button = PD6;
 const int moveM1Button = PD5;
 const int moveDownButton = 8;
 
-int pressedButton = 0;
-int lastPressedButton = 0;
-unsigned long lastPressed = 0;
-uint8_t doOnce = false;
+// Button bit masks. All four buttons are read at once, so M1 + M2 pressed
+// together can be detected (memory 3).
+const uint8_t kBtnUp = 1;
+const uint8_t kBtnDown = 2;
+const uint8_t kBtnM1 = 4;
+const uint8_t kBtnM2 = 8;
+const uint8_t kBtnMem = kBtnM1 | kBtnM2;
+
+// Press duration from which a memory button press stores instead of moves.
+const unsigned long kLongPressMs = 1000;
+// Memory buttons must be released this long before the press is evaluated
+// (contact bounce, M1 and M2 not released at exactly the same time). Also
+// used to suppress repeated "Button ... Pressed" messages while bouncing.
+const unsigned long kReleaseMs = 50;
+
+uint8_t buttons = 0;     // currently pressed buttons
+uint8_t lastButtons = 0; // buttons of the previous loop (for messages)
+// Last time each button (bit index 0..3) was seen pressed (for messages).
+unsigned long buttonLastPressed[4] = {0, 0, 0, 0};
+uint8_t manualDirection = 0; // 1/2 while Up/Down is held
+uint8_t memSeen = 0;         // memory buttons pressed during this press
+unsigned long memPressStart = 0;
+unsigned long memLastPressed = 0;
+uint8_t memBothHeld = false; // M1 and M2 currently held together
+unsigned long memBothSince = 0;
+unsigned long memBothMs = 0; // longest time M1 + M2 were held together
 
 void printValues()
 {
@@ -77,6 +101,8 @@ void printValues()
   Serial.println(memOne);
   Serial.print(F("Memory 2 is at: "));
   Serial.println(memTwo);
+  Serial.print(F("Memory 3 is at: "));
+  Serial.println(memThree);
   Serial.print(F("Threshold is: "));
   Serial.println(targetThreshold);
   Serial.print(F("Current Position: "));
@@ -93,10 +119,14 @@ void printHelp()
   Serial.println(F("Send 'T123' to set the threshold to 123 (255 max!)"));
   Serial.println(F("Send 'M1' to move to position stored in memory 1"));
   Serial.println(F("Send 'M2' to move to position stored in memory 2"));
+  Serial.println(F("Send 'M3' to move to position stored in memory 3"));
   Serial.println(F("Send 'S1' to store current position in memory 1"));
   Serial.println(F("Send 'S2' to store current position in memory 2"));
+  Serial.println(F("Send 'S3' to store current position in memory 3"));
   Serial.println(F("Send 'M15000' to move set the mem 1 position to 5000"));
   Serial.println(F("Send 'M25000' to move set the mem 2 position to 5000"));
+  Serial.println(F("Send 'M35000' to move set the mem 3 position to 5000"));
+  Serial.println(F("Buttons: M1+M2 short = memory 3, hold 1 s = store memory 3"));
   Serial.println(F("Send '1580' to move to position 1580."));
   Serial.println(F("==============================="));
 }
@@ -124,6 +154,21 @@ void storeM2(uint16_t value)
     Serial.print(F("New Memory 2: "));
     Serial.println(value);
     EEPROM.put(3, value);
+  }
+  else
+  {
+    Serial.println(F("Not stored. Keep your value between 150 and 6400"));
+  }
+}
+
+void storeM3(uint16_t value)
+{
+  if (value > 150 && value < 6400)
+  {
+    memThree = value;
+    Serial.print(F("New Memory 3: "));
+    Serial.println(value);
+    EEPROM.put(7, value); // addresses 5-6 hold currentTarget
   }
   else
   {
@@ -256,144 +301,190 @@ void processLINFrame(LinFrame frame)
   }
 }
 
+// Reads all four buttons (active HIGH) into the bit mask `buttons` and
+// reports newly pressed buttons on the serial port.
 void readButtons()
 {
-
+  buttons = 0;
   if (digitalRead(moveUpButton) == HIGH)
   {
-
-    pressedButton = moveUpButton;
-    if (lastPressedButton != pressedButton)
-    {
-      Serial.println(F("Button UP Pressed"));
-      lastPressedButton = pressedButton;
-    }
-    return;
+    buttons |= kBtnUp;
   }
-
-  if (digitalRead(moveM1Button) == HIGH)
-  {
-    pressedButton = moveM1Button;
-    if (lastPressedButton != pressedButton)
-    {
-      Serial.println(F("Button M1 Pressed"));
-      lastPressedButton = pressedButton;
-    }
-    return;
-  }
-
-  if (digitalRead(moveM2Button) == HIGH)
-  {
-    pressedButton = moveM2Button;
-    if (lastPressedButton != pressedButton)
-    {
-      Serial.println(F("Button M2 Pressed"));
-      lastPressedButton = pressedButton;
-    }
-    return;
-  }
-
   if (digitalRead(moveDownButton) == HIGH)
   {
-    pressedButton = moveDownButton;
-    if (lastPressedButton != pressedButton)
-    {
-      Serial.println(F("Button DN Pressed"));
-      lastPressedButton = pressedButton;
-    }
-    return;
+    buttons |= kBtnDown;
+  }
+  if (digitalRead(moveM1Button) == HIGH)
+  {
+    buttons |= kBtnM1;
+  }
+  if (digitalRead(moveM2Button) == HIGH)
+  {
+    buttons |= kBtnM2;
   }
 
-  pressedButton = 0;
+  // Report a press only if the button was released for at least kReleaseMs
+  // before, so contact bounce does not produce repeated messages.
+  unsigned long now = millis();
+  for (uint8_t i = 0; i < 4; i++)
+  {
+    uint8_t bit = 1 << i;
+    if (!(buttons & bit))
+    {
+      continue;
+    }
+    if (!(lastButtons & bit) && now - buttonLastPressed[i] >= kReleaseMs)
+    {
+      switch (bit)
+      {
+      case kBtnUp:
+        Serial.println(F("Button UP Pressed"));
+        break;
+      case kBtnDown:
+        Serial.println(F("Button DN Pressed"));
+        break;
+      case kBtnM1:
+        Serial.println(F("Button M1 Pressed"));
+        break;
+      default:
+        Serial.println(F("Button M2 Pressed"));
+        break;
+      }
+    }
+    buttonLastPressed[i] = now;
+  }
+  lastButtons = buttons;
 }
 
-void loopButtons()
+// Up/Down: move while held (only one of them pressed), stop on release.
+void loopMoveButtons()
 {
+  uint8_t moveButtons = buttons & (kBtnUp | kBtnDown);
 
-  if (pressedButton != 0)
+  // Keep the target far enough ahead so the table keeps moving while held.
+  if (moveButtons == kBtnUp)
   {
-
-    // Keep the target far enough ahead so the table keeps moving while held.
-    if (lastPressedButton == moveUpButton)
+    moveTable(1);
+    storeCurrentTarget(targetFromPosition(2L * kOverrun));
+    manualDirection = 1;
+  }
+  else if (moveButtons == kBtnDown)
+  {
+    moveTable(2);
+    storeCurrentTarget(targetFromPosition(-2L * kOverrun));
+    manualDirection = 2;
+  }
+  else if (manualDirection != 0)
+  {
+    // Released: target = expected end position after coasting. The
+    // remaining distance is exactly kOverrun, so the table stops now.
+    if (manualDirection == 1)
     {
-      moveTable(1);
-      storeCurrentTarget(targetFromPosition(2L * kOverrun));
-      manualMove = true;
-    }
-    else if (lastPressedButton == moveDownButton)
-    {
-      moveTable(2);
-      storeCurrentTarget(targetFromPosition(-2L * kOverrun));
-      manualMove = true;
+      storeCurrentTarget(targetFromPosition(kOverrun));
     }
     else
     {
-      if (doOnce == false)
+      storeCurrentTarget(targetFromPosition(-(long)kOverrun));
+    }
+    manualDirection = 0;
+  }
+}
+
+void printPressDuration(const __FlashStringHelper *name, unsigned long ms)
+{
+  Serial.print(F("Button "));
+  Serial.print(name);
+  Serial.print(F(" pressed for "));
+  Serial.print(ms);
+  Serial.println(F(" ms."));
+}
+
+// Memory buttons, evaluated after all memory buttons were released:
+//   M1 or M2 alone:  short = move to memory, >= 1 s = store current position
+//   M1 + M2:         short = move to memory 3, both held >= 1 s = store
+// M1 and M2 do not have to be pressed or released at exactly the same time.
+void loopMemoryButtons()
+{
+  unsigned long now = millis();
+  uint8_t memButtons = buttons & kBtnMem;
+
+  if (memButtons != 0)
+  {
+    if (memSeen == 0)
+    {
+      memPressStart = now;
+      memBothMs = 0;
+    }
+    memSeen |= memButtons;
+    memLastPressed = now;
+
+    if (memButtons == kBtnMem)
+    {
+      if (!memBothHeld)
       {
-        lastPressed = millis();
-        doOnce = true;
+        memBothHeld = true;
+        memBothSince = now;
       }
+      if (now - memBothSince > memBothMs)
+      {
+        memBothMs = now - memBothSince;
+      }
+    }
+    else
+    {
+      memBothHeld = false;
+    }
+    return;
+  }
+
+  memBothHeld = false;
+  if (memSeen == 0 || now - memLastPressed < kReleaseMs)
+  {
+    return;
+  }
+
+  if (memSeen == kBtnMem)
+  {
+    printPressDuration(F("M1+M2"), memBothMs);
+    if (memBothMs >= kLongPressMs)
+    {
+      storeM3(lastPosition);
+    }
+    else
+    {
+      storeCurrentTarget(memThree);
     }
   }
   else
   {
-
-    // Up/Down released: target = expected end position after coasting.
-    // The remaining distance is exactly kOverrun, so the table stops now.
-    if (manualMove)
+    unsigned long duration = memLastPressed - memPressStart;
+    if (memSeen == kBtnM1)
     {
-      if (lastPressedButton == moveUpButton)
+      printPressDuration(F("M1"), duration);
+      if (duration >= kLongPressMs)
       {
-        storeCurrentTarget(targetFromPosition(kOverrun));
+        storeM1(lastPosition);
       }
-      else if (lastPressedButton == moveDownButton)
+      else
       {
-        storeCurrentTarget(targetFromPosition(-(long)kOverrun));
-      }
-      manualMove = false;
-    }
-
-    if (doOnce)
-    {
-
-      unsigned int pressDuration = millis() - lastPressed;
-
-      if (pressDuration > 0 && pressDuration < 1000)
-      { // short press
-
-        Serial.print(F("Button pressed for "));
-        Serial.print(pressDuration);
-        Serial.println(F(" ms."));
-
-        if (lastPressedButton == moveM1Button)
-        {
-          storeCurrentTarget(memOne);
-        }
-        else if (lastPressedButton == moveM2Button)
-        {
-          storeCurrentTarget(memTwo);
-        }
-      }
-      else if (pressDuration >= 1000)
-      {
-
-        Serial.print(F("Button pressed for "));
-        Serial.print(pressDuration);
-        Serial.println(F(" ms."));
-
-        if (lastPressedButton == moveM1Button)
-        {
-          storeM1(lastPosition);
-        }
-        else if (lastPressedButton == moveM2Button)
-        {
-          storeM2(lastPosition);
-        }
+        storeCurrentTarget(memOne);
       }
     }
-
-    doOnce = false;
+    else
+    {
+      printPressDuration(F("M2"), duration);
+      if (duration >= kLongPressMs)
+      {
+        storeM2(lastPosition);
+      }
+      else
+      {
+        storeCurrentTarget(memTwo);
+      }
+    }
   }
+
+  memSeen = 0;
 }
 
 void setup()
@@ -451,6 +542,12 @@ void setup()
   if (memTwo == 65535)
   {
     storeM2(3500);
+  }
+
+  EEPROM.get(7, memThree);
+  if (memThree == 65535)
+  {
+    storeM3(kDefaultMemThree);
   }
 
   EEPROM.get(5, currentTarget);
@@ -530,6 +627,17 @@ void loop()
         storeM2(val.substring(2).toInt());
       }
     }
+    else if (val.indexOf("M3") != -1 || val.indexOf("m3") != -1)
+    {
+      if (val.length() == 2)
+      {
+        storeCurrentTarget(memThree);
+      }
+      else
+      {
+        storeM3(val.substring(2).toInt());
+      }
+    }
     else if (val.indexOf("S1") != -1 || val.indexOf("s1") != -1)
     {
 
@@ -539,6 +647,10 @@ void loop()
     {
 
       storeM2(lastPosition);
+    }
+    else if (val.indexOf("S3") != -1 || val.indexOf("s3") != -1)
+    {
+      storeM3(lastPosition);
     }
     else
     {
@@ -556,5 +668,6 @@ void loop()
   }
 
   readButtons();
-  loopButtons();
+  loopMoveButtons();
+  loopMemoryButtons();
 }
