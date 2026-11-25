@@ -28,6 +28,35 @@ uint8_t initializedTarget = false;
 uint8_t targetThreshold = 0;
 uint8_t currentTableMovement = 0;
 
+// After the motor is switched off the desk coasts ~150 position units and then
+// springs back ~40, so it ends ~114 units past the position at which it was
+// stopped (measured on a BEKANT: 111-117, both directions). The stop happens
+// at the first position report with remaining distance <= kOverrun; reports
+// come every ~35 units, so kOverrun = 114 + 35/2 centres the end position
+// error (about -20..+15).
+const uint16_t kOverrun = 130;
+// After a stop, wait until the position has been stable this long before an
+// automatic correction move is started (the desk is still coasting before).
+const unsigned long kSettleMs = 500;
+unsigned long lastPositionChange = 0;
+// True while the table is moved manually with the Up/Down buttons.
+uint8_t manualMove = false;
+
+// Target relative to the current position, clamped to the uint16_t range.
+uint16_t targetFromPosition(long offset)
+{
+  long value = (long)lastPosition + offset;
+  if (value < 0)
+  {
+    return 0;
+  }
+  if (value > 65535L)
+  {
+    return 65535;
+  }
+  return (uint16_t)value;
+}
+
 const int moveTableUpPin = PD4;
 const int moveTableDownPin = PD7;
 
@@ -157,18 +186,37 @@ void moveTable(uint8_t direction)
 // direction == 0 => Table is levelled
 // direction == 1 => Target is above table
 // direction == 2 => Target is below table
+//
+// While moving: keep moving only while the remaining distance is larger than
+// kOverrun, so the table coasts to the target after the stop.
+// While standing: start only after the position has settled and only if the
+// distance is larger than the threshold and larger than kOverrun (a shorter
+// move would be stopped again immediately).
 uint8_t desiredTableDirection()
 {
+  long distance = (long)currentTarget - (long)lastPosition; // > 0: target above
 
-  int distance = lastPosition - currentTarget;
-  uint16_t absDistance = abs(distance);
-
-  if (absDistance > targetThreshold)
+  if (currentTableMovement == 1)
   {
-    if (distance <= 0)
-    { // table has to move up
-      return 1;
-    }
+    return (distance > (long)kOverrun) ? 1 : 0;
+  }
+  if (currentTableMovement == 2)
+  {
+    return (-distance > (long)kOverrun) ? 2 : 0;
+  }
+
+  if (millis() - lastPositionChange < kSettleMs)
+  {
+    return 0;
+  }
+
+  long startDistance = max((long)targetThreshold, (long)kOverrun);
+  if (distance > startDistance)
+  {
+    return 1;
+  }
+  if (-distance > startDistance)
+  {
     return 2;
   }
   return 0;
@@ -195,6 +243,7 @@ void processLINFrame(LinFrame frame)
     if (temp != lastPosition)
     {
       lastPosition = temp;
+      lastPositionChange = millis();
       Serial.print(F("Current Position: "));
       Serial.println(temp);
 
@@ -264,15 +313,18 @@ void loopButtons()
   if (pressedButton != 0)
   {
 
+    // Keep the target far enough ahead so the table keeps moving while held.
     if (lastPressedButton == moveUpButton)
     {
       moveTable(1);
-      storeCurrentTarget(lastPosition + (targetThreshold * 2));
+      storeCurrentTarget(targetFromPosition(2L * kOverrun));
+      manualMove = true;
     }
     else if (lastPressedButton == moveDownButton)
     {
       moveTable(2);
-      storeCurrentTarget(lastPosition - (targetThreshold * 2));
+      storeCurrentTarget(targetFromPosition(-2L * kOverrun));
+      manualMove = true;
     }
     else
     {
@@ -285,6 +337,21 @@ void loopButtons()
   }
   else
   {
+
+    // Up/Down released: target = expected end position after coasting.
+    // The remaining distance is exactly kOverrun, so the table stops now.
+    if (manualMove)
+    {
+      if (lastPressedButton == moveUpButton)
+      {
+        storeCurrentTarget(targetFromPosition(kOverrun));
+      }
+      else if (lastPressedButton == moveDownButton)
+      {
+        storeCurrentTarget(targetFromPosition(-(long)kOverrun));
+      }
+      manualMove = false;
+    }
 
     if (doOnce)
     {
@@ -430,9 +497,9 @@ void loop()
     else if (val.indexOf("STOP") != -1 || val.indexOf("stop") != -1)
     {
       if (direction == 1)
-        storeCurrentTarget(lastPosition + (targetThreshold * 2));
+        storeCurrentTarget(targetFromPosition(kOverrun));
       else if (direction == 2)
-        storeCurrentTarget(lastPosition - (targetThreshold * 2));
+        storeCurrentTarget(targetFromPosition(-(long)kOverrun));
       Serial.print(F("STOP at "));
       Serial.println(currentTarget);
     }
