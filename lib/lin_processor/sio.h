@@ -13,7 +13,7 @@
 #ifndef SIO_H
 #define SIO_H
 
-#include <arduino.h>
+#include <Arduino.h>
 #include "avr_util.h"
 
 // A serial output that uses hardware UART0 and no interrupts (for lower
