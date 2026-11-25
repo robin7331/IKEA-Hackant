@@ -168,7 +168,7 @@ void storeM3(uint16_t value)
     memThree = value;
     Serial.print(F("New Memory 3: "));
     Serial.println(value);
-    EEPROM.put(7, value); // addresses 5-6 hold currentTarget
+    EEPROM.put(7, value); // addresses 5-6: formerly currentTarget
   }
   else
   {
@@ -191,11 +191,13 @@ void storeThreshold(uint8_t value)
   }
 }
 
-// Add a helper to store currentTarget
+// Sets the target the table moves to. The target is not written to the
+// EEPROM: it changes with every position report while Up/Down is held (EEPROM
+// wear), and after a reset processLINFrame() replaces it with the current
+// position anyway. EEPROM addresses 5-6 are no longer used.
 void storeCurrentTarget(uint16_t value)
 {
   currentTarget = value;
-  EEPROM.put(5, value); // Use address 5 (next free after memTwo)
 }
 
 // direction == 0 => Table stops
@@ -549,9 +551,6 @@ void setup()
   {
     storeM3(kDefaultMemThree);
   }
-
-  EEPROM.get(5, currentTarget);
-  // Optionally validate currentTarget here
 
   printValues();
 }
